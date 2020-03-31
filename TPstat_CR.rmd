@@ -308,11 +308,9 @@ step(tps.lm)
 ```
 
 ### Résultat de la sélection de variables
-
 Nous observons qu'après la mise en oeuvre de la sélection de variables, la variable mean.dist a été exclue du modèle par l'algorithme de la fonction step().
-Par ailleurs, nous pouvons constater qu'individuellement toutes les variables conservées ne sont pas autant pertinentes. En effet, on cherche à maximiser l'AIC et la variable sqrtdim semble ainsi être largement plus pertinente que les autres.
+Par ailleurs, nous pouvons constater qu'individuellement toutes les variables conservées ne sont pas autant pertinentes. En effet, on cherche à minimiser l'AIC et la variable sqrt(dim) semble ainsi être largement moins pertinente que les autres d'après les valeurs obtenues (467.67 d'AIC pour sqrt(dim) alors qu'on est en moyenne aux alentours de 300 pour les autres variables).
 
-***
 \newpage
 ### Test de Fisher
 
