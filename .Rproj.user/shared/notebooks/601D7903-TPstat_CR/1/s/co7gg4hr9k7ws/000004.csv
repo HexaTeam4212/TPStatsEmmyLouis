@@ -1,3 +1,0 @@
-"0","      n <- 10"
-"0","sommets <- data.frame(x = runif(n), y = runif(n))"
-"0","  couts <- distance(sommets)"

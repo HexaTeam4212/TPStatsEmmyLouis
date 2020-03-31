@@ -1,2 +1,0 @@
-"0","par(mfrow=c(1,2)) # 2 graphiques sur 1 ligne"
-"0","matplot(seqn, temps, xlab='n', ylab='temps', pch=seqn)"

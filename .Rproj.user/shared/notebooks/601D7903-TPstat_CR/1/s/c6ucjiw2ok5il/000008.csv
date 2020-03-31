@@ -1,7 +1,0 @@
-"0","microbenchmark(sqrt(x),x^0.5, times=100, setup={x <- runif(1)})"
-"1","Unit: "
-"1",""
-"1","nanoseconds"
-"1",""
-"1","
-"

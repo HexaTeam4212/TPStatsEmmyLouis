@@ -1,3 +1,0 @@
-"0",""
-"0","vect_temps <- log(as.vector(temps))^2"
-"0","vect_dim <- rep(seqn,times=10)"

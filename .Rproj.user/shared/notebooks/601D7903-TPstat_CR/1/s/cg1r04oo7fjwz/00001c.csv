@@ -1,1 +1,0 @@
-"0","matplot(seqn, log(temps)^2, xlab='n', ylab=expression(log(temps)^2), pch=seqn)"
