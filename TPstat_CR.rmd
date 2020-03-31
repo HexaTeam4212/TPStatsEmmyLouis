@@ -1,0 +1,353 @@
+---
+title: "TP Statistique"
+author: "Emmy LERANDY et Louis UNG"
+date: "31 mars 2020"
+output: pdf_document
+---
+
+```{r, include=FALSE}
+set.seed(42)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(sp)
+library(maps)
+library(microbenchmark)
+library(TSP)
+library(TSPpackage)
+villes <- read.csv('DonneesGPSvilles.csv',header=TRUE,dec='.',sep=';',quote="\"")
+```
+
+# 0. Visualisation de chemins
+
+On nous fournit dans ce TP des données de villes françaises stockées dans un fichier CSV et des algorithmes de calcul du chemin optimal.
+
+Voici ci-dessous une représentation des chemins par la méthode des plus proches voisins et la méthode du chemin optimal :
+
+
+```{r, echo=FALSE}
+coord <- cbind(villes$longitude,villes$latitude)
+dist <- distanceGPS(coord)
+voisins <- TSPnearest(dist)
+
+pathOpt <- c(1,8,9,4,21,13,7,10,3,17,16,20,6,19,15,18,11,5,22,14,12,2)
+
+par(mfrow=c(1,2),mar=c(1,1,2,1))
+plotTrace(coord[voisins$chemin,], title='Plus proches voisins')
+plotTrace(coord[pathOpt,], title='Chemin optimal')
+```
+
+
+Les longueurs des trajets (à vol d'oiseau) valent respectivement, pour la méthode des plus proches voisins :
+```{r, echo=FALSE}
+voisins$longueur
+```
+et pour la méthode optimale :
+```{r, echo=FALSE}
+calculeLongueur(dist,pathOpt)
+```
+
+Ceci illustre bien l'intérêt d'un algorithme de voyageur de commerce. Nous allons dans la suite étudier les performances de cet algorithme.
+
+***
+
+\newpage
+# 1. Comparaison d'algorithmes
+
+```{r, echo=FALSE}
+      n <- 10
+sommets <- data.frame(x = runif(n), y = runif(n))
+  couts <- distance(sommets)
+```
+
+## 1.1. Longueur des chemins
+
+Dans cette partie, il s'agit de comparer 5 différentes méthodes de calcul du chemin optimal : repetitive_nn, nearest_insertion, two_opt, nearest et branch.
+   
+### Boxplots des 5 méthodes
+```{r, echo=FALSE}
+repetitive_nn <- vector(length = 50)
+nearest_insertion <- vector(length = 50)
+two_opt <- vector(length = 50)
+nearestDist <- vector(length = 50)
+branchDist <- vector(length = 50)
+for (i in 1:50){
+  n <- 10
+  sommets <- data.frame(x = runif(n), y = runif(n))
+  couts <- distance(sommets)
+  repetitive_nn[i] <- TSPsolve(couts, 'repetitive_nn')
+  nearest_insertion[i] <- TSPsolve(couts, 'nearest_insertion')
+  two_opt[i] <- TSPsolve(couts, 'two_opt')
+  nearestDist[i] <-TSPnearest(couts)$longueur
+  branchDist[i] <- TSPbranch(couts)
+}
+
+mat_boxplot <- cbind(repetitive_nn,nearest_insertion,two_opt,nearestDist,branchDist)
+par(mfrow=c(1,1))
+boxplot(mat_boxplot,notch=TRUE)
+```
+Commentaire :
+On constate que Branch&Bound a la plus petite médiane, et a donc calculé le meilleur chemin optimal.
+En ce qui concerne les autres algorithmes, comme le résultat n'est pas stable entre chaque exécution du code, il est difficile d'en déduire d'autres informations supplémentaires.
+
+
+\newpage
+### Test entre nearest et branch
+
+Nous cherchons à tester l'espérance des algorithmes nearest et branch.
+Soient mnn et mb les espérances respectives des algorithmes des plus proches voisins et de Branch&Bound.
+Nous supposons alors les hypothèses suivantes : (H0) mnn − mb ≤ 0 contre (H1) mnn − mb > 0
+
+```{r echo=FALSE}
+t.test(nearestDist - branchDist, paired=FALSE, mu=0)
+
+```
+
+Commentaire :
+L'espérance obtenue appartient à l'intervalle de confiance à 95%, nous ne rejettons donc pas l'hypothèse H0, l'espérance de l'algorithme Branch&Bound est donc inférieur à celui des plus proches voisins.
+
+
+### Tests 2 à 2
+
+```{r echo=TRUE}
+results <- vector(length = 250)
+methods <- vector(length = 250)
+
+results <- c(nearestDist, branchDist, nearest_insertion,repetitive_nn, two_opt)
+
+for (i in 1:250){
+  if (i < 51){
+    methods[i] <- 'nearest'
+  }
+  else if (i < 101){
+    methods[i] <- 'Branch&Bound'
+  }
+  else if (i < 151) {
+    methods[i] <- 'nearest_insertion'
+  }
+  else if (i < 201) {
+    methods[i] <- 'repetitive_nn'
+  }
+  else {
+    methods[i] <- 'two_opt'
+  }
+}
+
+pairwise.t.test(results,methods,adjust.method='bonferroni')
+```
+
+Les résultats obtenus du tests de la correction multiple de Bonferroni sont présents ci-dessus.
+
+Commentaire :
+Nous observons que la difference entre Branch&Bound et nearest_insertion, Branch&Bound et repetitive_nn, nearest_insertion et repetitive_nn, nearest et two_opt est supérieur ou égal 10^-5. Nous pouvons donc conclure pour ces tests que l'hypothèse H0 est rejetée, ils n'ont donc pas la même espérance 2 à 2.
+A l'inverse, pour les autres pairs de tests, les résultats sont tous inférieurs ou égaux à 10^-12, valeur qu'on peut considérer suffisamment négligeable pour être approximée à 0 Nous pouvons donc pour ces pairs valider l'hypothèse H0, ils ont donc la même espérance 2 à 2.
+
+En résumé, les pairs de tests validant l'hypothèse H0 sont:
+ -- nearest et Branch&Bound
+ -- nearest et insertion
+ -- nearest et repetitive_nn
+ -- Branch&Bound et two_opt
+ -- nearest_insertion et two_opt
+ -- repetitive_nn et two_opt
+
+## 1.2. Temps de calcul
+
+Comparaison des temps à l'aide du package microbenchmark.
+
+Exemple d'application de microbenchmark :
+```{r, echo=TRUE}
+microbenchmark(sqrt(x),x^0.5, times=100, setup={x <- runif(1)})
+```
+
+### Microbenchmark
+
+```{r, echo=TRUE}
+microbenchmark(TSPsolve(couts, 'repetitive_nn'), TSPsolve(couts,'nearest_insertion'),
+TSPsolve(couts, 'two_opt'), TSPnearest(couts)$longueur, TSPbranch(couts), times=1, 
+setup={
+  n <- 10
+  sommets <- data.frame(x = runif(n), y = runif(n))
+  couts <- distance(sommets)
+})
+```
+Nous avons décidé d'augmenter le nombre de graphes étudiés car les résultats qu'on obtenait étaient trop instables avec 20 graphes. Après plusieurs essais, sur 400 graphes, nous obtenons dans la majorité des cas pour la dernière colonne le classement suivant : d pour repetitive_nn, b pour nearest_insertion, b pour two_opt, a pour nearest et c pour Branch&Bound.
+
+Commentaire:
+Le plus rapide en temps d'exécution parmi les 5 méthodes d'après microbenchmark est donc la méthode nearest, suivie de nearest_insertion et two_opt, puis par Branch&Bound et enfin repetitive_nn qui est la méthode la plus lente.
+On note que nearest_insertion et two_opt ont la même classe b, ce qui signifie que le test entre ces 2 méthodes valide l'hypothèse H0, nous avons donc une égalité entre l'espérance des temps de l'algorithme nearest_insertion et two_opt avec un risque de se tromper de 5%.
+
+
+# 2. Etude de la complexité de l'algorithme Branch and Bound
+
+## 2.1. Comportement par rapport au nombre de sommets : premier modèle
+
+Récupération du temps sur 10 graphes pour différentes valeurs de $n$.
+```{r, echo=TRUE}
+seqn <- seq(4,20,1)
+temps <- matrix(ncol=10, nrow=length(seqn))
+for (i in 1:length(seqn)){
+  temps[i,] <- microbenchmark(TSPsolve(couts, method = 'branch'),
+                 times = 10,
+                 setup = { n <- seqn[i]
+                 couts <- distance(cbind(x = runif(n), y = runif(n)))}
+  )$time
+}
+```
+
+Ajustement du modèle linéaire de $\log(temps)^2$ en fonction de $n$.
+```{r, echo=TRUE}
+par(mfrow=c(1,2)) # 2 graphiques sur 1 ligne
+matplot(seqn, temps, xlab='n', ylab='temps', pch=seqn)
+matplot(seqn, log(temps)^2, xlab='n', ylab=expression(log(temps)^2), pch=seqn)
+
+vect_temps <- log(as.vector(temps))^2
+vect_dim <- rep(seqn,times=10)
+```
+Après ajustement, on obtient une courbe plus proche d'une droite.
+
+```{r echo=TRUE}
+temps.lm <- lm(vect_temps ~ vect_dim)
+summary(temps.lm)
+```
+
+Commentaire :
+On observe qu'on obtient un coefficient R² ajusté valant 0.8758, on est donc proche de 1. Or plus ce coefficient est proche de 1, plus la courbe obtenue sera proche d'une droite. Nous avons donc une relation de proportionnalité entre le logarithme au carré du temps d'exécution et le nombre de sommets.
+Par ailleurs, on obtient une p-value inférieure à 10^-16, donc très négligeable et approximable à la valeur 0, on ne rejette donc pas l'hypothèse H0 et le test de Fisher est validé. On en conclut que ce modèle est donc pertinent.
+
+
+Etude graphique
+
+```{r echo=TRUE}
+par(mfrow=c(2,2))
+plot(temps.lm)
+```
+
+Commentaire :
+Dans les graphes Residuals vs Fitted et Scale-Location, on observe que les points ne sont pas homogènes et une droite non-horizontale, on a donc pas de linéarité.
+Dans le graphe Normal Q-Q, on obtient une droite très semblable d'une diagonale, la distribution des résidus peut donc être assimilée à une distribution normale.
+Dans le graphe Residuals vs Leverage, on est dans les bornes de la distance de Cook donc OK
+
+### Test de Shapiro-Wilk
+
+```{r echo=TRUE}
+shapiro.test(residuals(temps.lm))
+```
+
+Commentaire :
+On obtient une p-value grande, qui est largement supérieure au risque alpha qui est de 0.05.
+Ainsi, on ne rejette pas l'hyphothèse H0, les résidus du modèles suivent donc possiblement une distribution normale.
+
+Conclusion : le modèle est valide.
+
+## 2.2. Comportement par rapport au nombre de sommets : étude du comportement moyen
+
+### Ajustement du modèle de régression linéaire simple gaussien de log(temps.moy)^2 en fonction de seqn
+
+// rajouter un plot pour montrer qu'on a une droite
+
+```{r echo=TRUE}
+temps.moy <- rowMeans(temps)
+vect_temps.moy <- log(as.vector(temps.moy))^2
+temps.moy.lm <- lm(vect_temps.moy ~ seqn)
+summary(temps.moy.lm)
+```
+Commentaire :
+On observe qu'on obtient un coefficient R² ajusté valant 0.9385, on est donc proche de 1. Or plus ce coefficient est proche de 1, plus la courbe obtenue sera proche d'une droite. Nous avons donc une relation de proportionnalité entre le logarithme au carré du temps d'exécution et le nombre de sommets.
+Par ailleurs, on obtient une p-value inférieure à 1^-10, donc très négligeable et approximable à la valeur 0, on ne rejette donc pas l'hypothèse H0 et le test de Fisher est validé. On en conclut que la statistique F = 0, donc la modèle n'apporte aucune information utile.
+
+### Etude graphique
+```{r echo=TRUE}
+par(mfrow=c(2,2))
+plot(temps.moy.lm)
+```
+Dans les graphes Residuals vs Fitted et Scale-Location, on observe que les points ne sont pas homogènes et une droite non-horizontale, on n'a donc pas de linéarité dans ce cas aussi.
+Dans le graphe Normal Q-Q, on obtient des points qui sont éparpillés autour de la diagonale, mais si on cherche à relier ces points on obtient une courbe ressemblant à une diagonale, on en déduit donc que la distribution des résidus peut être assimilée à une distribution normale.
+Dans le graphe Residuals vs Leverage, on observe un outlier (le numéro 1), la qualité de l'échantillon en est donc impactée. Il faudrait supprimer cet outlier pour améliorer la qualité de l'échantillon des données et augmenter leur pertinence. Cependant, l'écart est relativement faible et nous pouvons donc quand même affirmer que nous avons un échantillon de qualité acceptable.
+
+### Test de Shapiro-Wilk
+```{r echo=TRUE}
+shapiro.test(residuals(temps.moy.lm))
+```
+
+Commentaire :
+On obtient à l'issue du test une p-value de valeur élevée. Cette p-value est largement supérieure au risque alpha qui est de 5%, nous ne rejettons pas l'hypothèse H0.
+Les résidus du modèle peuvent donc suivre une distribution normale.
+
+Conclusion : le modèle est valide
+
+## 2.3. Comportement par rapport à la structure du graphe
+
+### Construction du modèle de régression
+
+Nous allons construire le modèle de régression de log(tps)^2 par rapport à sqrt(dim) et toutes les autres variables, exceptées la variable tps.
+Une fois le modèle construit, nous mettons en oeuvre la sélection de variables à l'aide de la fonction step.
+On obtient le résultat ci-dessous :
+
+```{r echo=TRUE}
+data.graph <- read.csv('DonneesTSP.csv',header=TRUE,dec='.',sep=',',quote="\"")
+
+dataset <- data.frame(matrix(ncol = 7, nrow = 70))
+colnames(dataset) <- c("sqrtdim", "mean.long","mean.dist", 
+                       "sd.dist","mean.deg", "sd.deg", "diameter")
+dataset$sqrtdim = sqrt(data.graph$dim)
+dataset$mean.long = data.graph$mean.long
+dataset$mean.dist = data.graph$mean.dist
+dataset$sd.dist = data.graph$sd.dist
+dataset$mean.deg = data.graph$mean.deg
+dataset$sd.deg = data.graph$sd.deg
+dataset$diameter = data.graph$diameter
+
+vect_tps <- log(as.vector(data.graph$tps))^2
+tps.lm <- lm(vect_tps ~., data = dataset)
+step(tps.lm)
+```
+
+### Résultat de la sélection de variables
+
+Nous observons qu'après la mise en oeuvre de la sélection de variables, la variable mean.dist a été exclue du modèle par l'algorithme de la fonction step().
+Par ailleurs, nous pouvons constater qu'individuellement toutes les variables conservées ne sont pas autant pertinentes. En effet, on cherche à maximiser l'AIC et la variable sqrtdim semble ainsi être largement plus pertinente que les autres.
+
+### Test de Fisher
+
+Nous effectuons le test de Fisher avec le nouveau modèle sans la variable mean.dist, comme elle a été déterminée comme non pertinente précédemment.
+
+```{r echo=TRUE}
+datasetAfterAIC <- data.frame(matrix(ncol = 6, nrow = 70))
+colnames(datasetAfterAIC) <- c("sqrtdim", "mean.long", 
+                       "sd.dist","mean.deg", "sd.deg", "diameter")
+datasetAfterAIC$sqrtdim = sqrt(data.graph$dim)
+datasetAfterAIC$mean.long = data.graph$mean.long
+datasetAfterAIC$sd.dist = data.graph$sd.dist
+datasetAfterAIC$mean.deg = data.graph$mean.deg
+datasetAfterAIC$sd.deg = data.graph$sd.deg
+datasetAfterAIC$diameter = data.graph$diameter
+
+tps.lm_aic <- lm(vect_tps ~., data = datasetAfterAIC)
+summary(tps.lm_aic)
+```
+Commentaire :
+On observe qu'on obtient un coefficient R² ajusté valant 0.9905, on est donc très proche de 1. Nous avons donc une relation de proportionnalité entre le logarithme au carré du temps moyen d'exécution de l'algorithme Branch&Bound et le nombre de sommets.
+Par ailleurs, on obtient une p-value inférieure à 10^-16, donc très négligeable et approximable à la valeur 0, on ne rejette donc pas l'hypothèse H0 et le test de Fisher est validé. On en conclut que ce modèle est donc pertinent.
+
+### Etude des résidus
+```{r b,echo=TRUE}
+par(mfrow=c(2,2))
+plot(tps.lm_aic)
+```
+
+Commentaire :
+Dans les graphes Residuals vs Fitted et Scale-Location, on observe que les points ne sont pas homogènes et une droite non-horizontale, on n'a donc pas de linéarité dans ce cas aussi.
+Dans le graphe Normal Q-Q, on obtient une courbe ressemblant à une diagonale, on en déduit donc que la distribution des résidus peut être assimilée à une distribution normale.
+Dans le graphe Residuals vs Leverage, on observe que tous les points dans compris dans la zone délimitée par les pointillés rouge, calculée à partir de la distance de Cook. Nous n'avons donc pas de valeurs aberrantes présentes dans cet échantillon, nous pouvons donc en déduire que nous avons un échantillon de bonne qualité.
+
+### Test de Shapiro-Wilk
+```{r a, echo=TRUE}
+shapiro.test(residuals(tps.lm_aic))
+```
+Commentaire :
+On obtient une p-value grande, qui est largement supérieure au risque alpha qui est de 0.05.
+Ainsi, on ne rejette pas l'hyphothèse H0, les résidus du modèles suivent donc possiblement une distribution normale.
+
+Conclusion : le modèle est valide.

@@ -1,0 +1,8 @@
+"0","knitr::opts_chunk$set(echo = TRUE)"
+"0",""
+"0","library(sp)"
+"0","library(maps)"
+"0","library(microbenchmark)"
+"0","library(TSP)"
+"0","library(TSPpackage)"
+"0","villes <- read.csv('DonneesGPSvilles.csv',header=TRUE,dec='.',sep=';',quote=""\"""")"
